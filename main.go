@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
@@ -122,9 +123,15 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 
 			res.Header().Set("Content-Type", "text/html")
 			res.WriteHeader(http.StatusInternalServerError)
-			_, _ = res.Write([]byte(fmt.Sprintf(`
-	<p>Error building URL with %s: %#v</p>
-			`, hostname, err)))
+			data := struct {
+				Hostname string
+				Error    error
+			}{
+				Hostname: hostname,
+				Error:    err,
+			}
+			t, _ := template.New("url building error").Parse("<p>Error building URL with {{.Hostname}}: {{.Error}}</p>")
+			_ = t.Execute(res, data)
 			return
 		}
 
@@ -137,9 +144,8 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		log.Printf("unable to parse hostname as a Consul service address: %s", hostname)
 
 		res.Header().Set("Content-Type", "text/html")
-		_, _ = res.Write([]byte(fmt.Sprintf(`
-<p>Could not parse hostname <code>%s</code> as a Consul service address</p>
-		`, hostname)))
+		t, _ := template.New("parse error").Parse("<p>Could not parse hostname <code>{{.}}</code> as a Consul service address</p>")
+		_ = t.Execute(res, hostname)
 
 		s.printHostnameTips(res)
 		s.printQuickLinks(res, hostname)
@@ -152,9 +158,15 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 
 		res.Header().Set("Content-Type", "text/html")
 		res.WriteHeader(http.StatusInternalServerError)
-		_, _ = res.Write([]byte(fmt.Sprintf(`
-<p>Error querying Consul for %s: %#v</p>
-		`, hostname, err)))
+		data := struct {
+			Hostname string
+			Error    error
+		}{
+			Hostname: hostname,
+			Error:    err,
+		}
+		t, _ := template.New("consul querying error").Parse("<p>Error querying Consul for {{.Hostname}}: {{.Error}}</p>")
+		_ = t.Execute(res, data)
 
 		return
 	}
@@ -165,9 +177,15 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 			log.Printf("error building URL for %s: %#v", hostname, err)
 			res.Header().Set("Content-Type", "text/html")
 			res.WriteHeader(http.StatusInternalServerError)
-			_, _ = res.Write([]byte(fmt.Sprintf(`
-<p>error building URL for %s: %#v</p>
-			`, hostname, err)))
+			data := struct {
+				Hostname string
+				Error    error
+			}{
+				Hostname: hostname,
+				Error:    err,
+			}
+			t, _ := template.New("url building error").Parse("<p>Error building URL for {{.Hostname}}: {{.Error}}</p>")
+			_ = t.Execute(res, data)
 
 			return
 		}
@@ -187,9 +205,15 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		res.Header().Set("Content-Type", "text/html")
 
 		res.WriteHeader(http.StatusNotFound)
-		_, _ = res.Write([]byte(fmt.Sprintf(`
-<p>No results found for service <code>%s</code>%s in Consul</p>
-		`, svcName, portTypeSuffix)))
+		t, _ := template.New("no results").Parse("<p>No results found for service <code>{{.SvcName}}</code>{{.PortTypeSuffix}} in Consul</p>")
+		data := struct {
+			SvcName        string
+			PortTypeSuffix string
+		}{
+			SvcName:        svcName,
+			PortTypeSuffix: portTypeSuffix,
+		}
+		_ = t.Execute(res, data)
 
 		s.printHostnameTips(res)
 		s.printQuickLinks(res, hostname)
@@ -198,9 +222,23 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 
 	res.Header().Set("Content-Type", "text/html")
 
-	_, _ = res.Write([]byte(fmt.Sprintf(`
-<p>Consul service ports found for service <code>%s</code>%s:</p><ul>
-	`, svcName, portTypeSuffix)))
+	t, _ := template.New("no results").Parse("<p>Consul service ports found for service <code>{{.SvcName}}</code>{{.PortTypeSuffix}} in Consul</p>")
+	data := struct {
+		SvcName        string
+		PortTypeSuffix string
+	}{
+		SvcName:        svcName,
+		PortTypeSuffix: portTypeSuffix,
+	}
+	_ = t.Execute(res, data)
+
+	tList, _ := template.New("list item").Parse(`
+<li>
+	<a href="{{.Url}}">
+		{{.FullHostname}} port {{.Port}}{{.Tags}}
+	</a>
+</li>
+`)
 
 	for _, option := range result {
 		fullHostname := addHostnameSuffix(option.Hostname)
@@ -214,13 +252,19 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		if len(tags) > 0 {
 			tags = " (" + tags + ")"
 		}
-		_, _ = res.Write([]byte(fmt.Sprintf(`
-<li>
-	<a href="%s">
-		%s port %d%s
-	</a>
-</li>
-		`, u, fullHostname, option.Port, tags)))
+
+		data := struct {
+			Url          *url.URL
+			FullHostname string
+			Port         uint16
+			Tags         string
+		}{
+			Url:          u,
+			FullHostname: fullHostname,
+			Port:         option.Port,
+			Tags:         tags,
+		}
+		_ = tList.Execute(res, data)
 	}
 
 	_, _ = res.Write([]byte("</ul><br />"))
