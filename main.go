@@ -222,7 +222,7 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 
 	res.Header().Set("Content-Type", "text/html")
 
-	t, _ := template.New("no results").Parse("<p>Consul service ports found for service <code>{{.SvcName}}</code>{{.PortTypeSuffix}} in Consul</p>")
+	t, _ := template.New("results found").Parse("<p>Consul service ports found for service <code>{{.SvcName}}</code>{{.PortTypeSuffix}} in Consul</p>")
 	data := struct {
 		SvcName        string
 		PortTypeSuffix string
