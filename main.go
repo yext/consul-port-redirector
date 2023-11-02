@@ -47,6 +47,15 @@ var (
 <li><a href="http://{{.ConsulHost}}:8500/ui/">Consul UI</a></li>
 </ul>
 `))
+	tHostnameTips = template.Must(template.New("hostname tips").Parse(`
+<p>The hostname should be in one of these formats:</p>
+<ul>
+<li><b>ServiceName</b>.service.consul</li>
+<li><b>PortName</b>.<b>ServiceName</b>.service.consul</li>
+<li><b>ServiceName</b>.service.<b>DatacenterName</b>.consul</li>
+<li><b>PortName</b>.<b>ServiceName</b>.service.<b>DatacenterName</b>.consul</li>
+</ul>
+`))
 )
 
 func main() {
@@ -307,15 +316,7 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) printHostnameTips(res http.ResponseWriter) {
-	_, err := fmt.Fprint(res, `
-	<p>The hostname should be in one of these formats:</p>
-	<ul>
-	  <li><b>ServiceName</b>.service.consul</li>
-	  <li><b>PortName</b>.<b>ServiceName</b>.service.consul</li>
-	  <li><b>ServiceName</b>.service.<b>DatacenterName</b>.consul</li>
-	  <li><b>PortName</b>.<b>ServiceName</b>.service.<b>DatacenterName</b>.consul</li>
-	</ul>
-`)
+	err := tHostnameTips.Execute(res, nil)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
