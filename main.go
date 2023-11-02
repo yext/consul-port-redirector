@@ -24,6 +24,24 @@ var (
 	customRoutes      = flag.String("customRoutes", "{}", "a JSON key-value map of custom routings based on hostname")
 )
 
+var (
+	tUrlBuildingError    = template.Must(template.New("url building error").Parse("<p>Error building URL with {{.Hostname}}: {{.Error}}</p>"))
+	tHostnameParseError  = template.Must(template.New("parse error").Parse("<p>Could not parse hostname <code>{{.}}</code> as a Consul service address</p>"))
+	tConsulQueryingError = template.Must(template.New("consul querying error").Parse("<p>Error querying Consul for {{.Hostname}}: {{.Error}}</p>"))
+	tNoResults           = template.Must(template.New("no results").Parse("<p>No results found for service <code>{{.SvcName}}</code>{{.PortTypeSuffix}} in Consul</p>"))
+	tResultsList         = template.Must(template.New("results found").Parse(`<p>Consul service ports found for service <code>{{.SvcName}}</code>{{.PortTypeSuffix}} in Consul</p>
+<ul>
+{{ range .Results }}
+<li>
+	<a href="{{.Url}}">
+		{{.FullHostname}} port {{.Port}}{{.Tags}}
+	</a>
+</li>
+{{ end }}
+</ul>
+`))
+)
+
 func main() {
 	flag.Parse()
 
@@ -130,8 +148,10 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 				Hostname: hostname,
 				Error:    err,
 			}
-			t, _ := template.New("url building error").Parse("<p>Error building URL with {{.Hostname}}: {{.Error}}</p>")
-			_ = t.Execute(res, data)
+			err = tUrlBuildingError.Execute(res, data)
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 
@@ -144,8 +164,10 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		log.Printf("unable to parse hostname as a Consul service address: %s", hostname)
 
 		res.Header().Set("Content-Type", "text/html")
-		t, _ := template.New("parse error").Parse("<p>Could not parse hostname <code>{{.}}</code> as a Consul service address</p>")
-		_ = t.Execute(res, hostname)
+		err := tHostnameParseError.Execute(res, hostname)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
 
 		s.printHostnameTips(res)
 		s.printQuickLinks(res, hostname)
@@ -165,8 +187,10 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 			Hostname: hostname,
 			Error:    err,
 		}
-		t, _ := template.New("consul querying error").Parse("<p>Error querying Consul for {{.Hostname}}: {{.Error}}</p>")
-		_ = t.Execute(res, data)
+		err = tConsulQueryingError.Execute(res, data)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
 
 		return
 	}
@@ -184,8 +208,10 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 				Hostname: hostname,
 				Error:    err,
 			}
-			t, _ := template.New("url building error").Parse("<p>Error building URL for {{.Hostname}}: {{.Error}}</p>")
-			_ = t.Execute(res, data)
+			err = tUrlBuildingError.Execute(res, data)
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusInternalServerError)
+			}
 
 			return
 		}
@@ -205,7 +231,6 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		res.Header().Set("Content-Type", "text/html")
 
 		res.WriteHeader(http.StatusNotFound)
-		t, _ := template.New("no results").Parse("<p>No results found for service <code>{{.SvcName}}</code>{{.PortTypeSuffix}} in Consul</p>")
 		data := struct {
 			SvcName        string
 			PortTypeSuffix string
@@ -213,7 +238,10 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 			SvcName:        svcName,
 			PortTypeSuffix: portTypeSuffix,
 		}
-		_ = t.Execute(res, data)
+		err = tNoResults.Execute(res, data)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
 
 		s.printHostnameTips(res)
 		s.printQuickLinks(res, hostname)
@@ -222,23 +250,19 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 
 	res.Header().Set("Content-Type", "text/html")
 
-	t, _ := template.New("results found").Parse("<p>Consul service ports found for service <code>{{.SvcName}}</code>{{.PortTypeSuffix}} in Consul</p>")
 	data := struct {
 		SvcName        string
 		PortTypeSuffix string
+		Results        []struct {
+			Url          *url.URL
+			FullHostname string
+			Port         uint16
+			Tags         string
+		}
 	}{
 		SvcName:        svcName,
 		PortTypeSuffix: portTypeSuffix,
 	}
-	_ = t.Execute(res, data)
-
-	tList, _ := template.New("list item").Parse(`
-<li>
-	<a href="{{.Url}}">
-		{{.FullHostname}} port {{.Port}}{{.Tags}}
-	</a>
-</li>
-`)
 
 	for _, option := range result {
 		fullHostname := addHostnameSuffix(option.Hostname)
@@ -253,7 +277,7 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 			tags = " (" + tags + ")"
 		}
 
-		data := struct {
+		data.Results = append(data.Results, struct {
 			Url          *url.URL
 			FullHostname string
 			Port         uint16
@@ -263,11 +287,15 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 			FullHostname: fullHostname,
 			Port:         option.Port,
 			Tags:         tags,
-		}
-		_ = tList.Execute(res, data)
+		})
 	}
 
-	_, _ = res.Write([]byte("</ul><br />"))
+	err = tResultsList.Execute(res, data)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	s.printQuickLinks(res, hostname)
 }
 
