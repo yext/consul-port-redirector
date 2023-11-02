@@ -40,6 +40,13 @@ var (
 {{ end }}
 </ul>
 `))
+	tQuickLinks = template.Must(template.New("quick links").Parse(`
+<p>Quick links:</p>
+<ul>
+<li><a href="http://{{.NomadHost}}:4646/ui/">Nomad UI</a></li>
+<li><a href="http://{{.ConsulHost}}:8500/ui/">Consul UI</a></li>
+</ul>
+`))
 )
 
 func main() {
@@ -300,15 +307,18 @@ func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) printHostnameTips(res http.ResponseWriter) {
-	_, _ = res.Write([]byte(`
-<p>The hostname should be in one of these formats:</p>
-<ul>
-  <li><b>ServiceName</b>.service.consul</li>
-  <li><b>PortName</b>.<b>ServiceName</b>.service.consul</li>
-  <li><b>ServiceName</b>.service.<b>DatacenterName</b>.consul</li>
-  <li><b>PortName</b>.<b>ServiceName</b>.service.<b>DatacenterName</b>.consul</li>
-</ul>
-	`))
+	_, err := fmt.Fprint(res, `
+	<p>The hostname should be in one of these formats:</p>
+	<ul>
+	  <li><b>ServiceName</b>.service.consul</li>
+	  <li><b>PortName</b>.<b>ServiceName</b>.service.consul</li>
+	  <li><b>ServiceName</b>.service.<b>DatacenterName</b>.consul</li>
+	  <li><b>PortName</b>.<b>ServiceName</b>.service.<b>DatacenterName</b>.consul</li>
+	</ul>
+`)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) printQuickLinks(res http.ResponseWriter, hostname string) {
@@ -322,13 +332,18 @@ func (s *Server) printQuickLinks(res http.ResponseWriter, hostname string) {
 		consulHost = *consulUIHostname
 	}
 
-	_, _ = res.Write([]byte(fmt.Sprintf(`
-<p>Quick links:</p>
-<ul>
-<li><a href="http://%s:4646/ui/">Nomad UI</a></li>
-<li><a href="http://%s:8500/ui/">Consul UI</a></li>
-</ul>
-	`, nomadHost, consulHost)))
+	data := struct {
+		NomadHost  string
+		ConsulHost string
+	}{
+		NomadHost:  nomadHost,
+		ConsulHost: consulHost,
+	}
+
+	err := tQuickLinks.Execute(res, data)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func addHostnameSuffix(hostname string) string {
